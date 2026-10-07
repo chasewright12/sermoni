@@ -1,15 +1,15 @@
 <div align="center">
 
-<img src="https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExeWtiODd5aHBmaHl3b3VuaHVubDh4aTdxZGY4cmJzOHNnMmk1ajBlYyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/m5VqS0ZGTpHTWgi9Ud/giphy.gif">
+<img src="https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExc2drNThsb3c3bzh4aHdldWwyZXZtZmNkZzU1cmszM3UxNXlpMDM4dyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/Zx1KzuQBR8wIbrm81t/giphy.gif">
 <br>
 <p align="center">
-  Image: <strong>Nokia Bell Labs</strong> • @bellabs
+  Image: <strong>CISCO Latinoamérica</strong> • @ciscolatinoamerica
 </p>
 
-# Server Monitor
+# Sermoni by ChaseWright | Server Monitoring
 </div>
 
-A lightweight server monitoring system built with **TypeScript**.
+Sermoni is a lightweight server monitoring system built with **TypeScript**.
 
 The project consists of an agent that collects system metrics from a machine and sends them to a monitoring API over HTTP. The API validates the received data using **Zod** and exposes the latest metrics through a REST endpoint.
 
