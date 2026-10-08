@@ -1,10 +1,7 @@
 <div align="center">
 
-<img src="https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExc2drNThsb3c3bzh4aHdldWwyZXZtZmNkZzU1cmszM3UxNXlpMDM4dyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/Zx1KzuQBR8wIbrm81t/giphy.gif">
-<br>
-<p align="center">
-  Image: <strong>CISCO Latinoamérica</strong> • @ciscolatinoamerica
-</p>
+<img src="https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExY3J3NGZyODlyZ3AwMzF5dGN0ZmFqcGd5c2JtY3ZoMjRydGowaDE2aCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/LGzrggUppEBdm/giphy.gif">
+
 
 # Sermoni by ChaseWright | Server Monitoring
 </div>
