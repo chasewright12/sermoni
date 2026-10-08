@@ -92,6 +92,8 @@ app.get("/health", async () => {
     };
 });
 
+export { app };
+
 const start = async () => {
     try {
         await app.listen({
@@ -106,4 +108,6 @@ const start = async () => {
     }
 };
 
-start();
+if (import.meta.url === `file://${process.argv[1]}`) {
+    start();
+}

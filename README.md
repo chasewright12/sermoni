@@ -10,7 +10,10 @@ Sermoni is a lightweight server monitoring system built with **TypeScript**.
 
 The project consists of an agent that collects system metrics from a machine and sends them to a monitoring API over HTTP. The API validates the received data using **Zod** and exposes the latest metrics through a REST endpoint.
 
-## Features
+<div align="center">
+
+**Features**
+</div>
 
 - System information collection
 - CPU usage monitoring
@@ -20,11 +23,11 @@ The project consists of an agent that collects system metrics from a machine and
 - Runtime data validation with Zod
 - Health check endpoint
 - Latest metrics endpoint
+- Automated API endpoint tests
 - TypeScript-based implementation
 - Fastify HTTP server
 
 ## Architecture
-
 ```text
 ┌─────────────────────┐
 │    Monitoring       │
@@ -71,8 +74,11 @@ server-monitor/
 │   └── index.ts
 │
 ├── api/
-│   └── src/
-│       └── server.ts
+│   ├── src/
+│   │   └── server.ts
+│   │
+│   └── tests/
+│       └── server.test.ts
 │
 └── README.md
 ```
@@ -85,6 +91,7 @@ server-monitor/
 - **Zod** — request validation
 - **systeminformation** — system and hardware metrics
 - **tsx** — TypeScript execution during development
+- **Vitest** - automated testing
 
 ## How It Works
 
@@ -302,6 +309,26 @@ The validation layer ensures that the received data contains the expected struct
 
 This prevents malformed data from being accepted by the API.
 
+Invalid metric submissions return HTTP `400`.
+Valid metric submissions return HTTP `201`.
+
+## Testing
+
+The API uses Vitest for automated testing.
+
+The current test suite covers:
+- **`GET /health`** returning HTTP `200`
+- **`POST /metrics`** accepting valid metrics
+- **`POST /metrics`** rejecting invalid metrics with HTTP `400`
+
+Run the tests from the API directory:
+```
+cd api
+npm test
+```
+
+The tests use Fastify's `app.inject()` to test the API without starting the HTTP server.
+
 ## Current Limitations
 
 The project is currently designed as a learning and development project.
@@ -344,6 +371,7 @@ This project is being developed to practice:
 - REST API development
 - HTTP communication
 - Runtime validation
+- Automated testing
 - System monitoring
 - API architecture
 - Backend development
