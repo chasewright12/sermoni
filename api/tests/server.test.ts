@@ -99,5 +99,71 @@ describe("POST /metrics", () => {
 
         expect(response.json()).toHaveProperty("error", "Invalid metrics");
     });
-});
 
+    describe("GET /metrics", () => {
+        it("should return stored metrics", async () => {
+            const metrics = {
+                system: {
+                    hostname: "test-server",
+
+                    operatingSystem: {
+                        platform: "linux",
+                        distro: "Ubuntu",
+                        release: "24.04",
+                        arch: "x64"
+                    },
+
+                    hardware: {
+                        manufacturer: "Microsoft",
+                        model: "WSL"
+                    },
+
+                    uptime: 12345,
+
+                    cpu: {
+                        cores: 8
+                    }
+                },
+
+                cpu: 35.5,
+
+                memory: {
+                    total: 4000000000,
+                    used: 2000000000,
+                    free: 2000000000,
+                    percentage: 50
+                },
+
+                disk: [
+                    {
+                        filesystem: "/",
+                        size: 100000000000,
+                        used: 50000000000,
+                        percentage: 50
+                    }
+                ],
+
+                timestamp: new Date().toISOString()
+            };
+
+            const postResponse = await app.inject({
+                method: "POST",
+                url: "/metrics",
+                headers: {
+                    "content-type": "application/json"
+                },
+                payload: JSON.stringify(metrics)
+            });
+
+            expect(postResponse.statusCode).toBe(201);
+
+            const getResponse = await app.inject({
+                method: "GET",
+                url: "/metrics"
+            });
+
+            expect(getResponse.statusCode).toBe(200);
+            expect(getResponse.json()).toEqual(metrics);
+        });
+    });
+});
