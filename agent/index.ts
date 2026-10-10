@@ -1,3 +1,4 @@
+
 import { getSystemInfo } from "./src/collectors/system";
 import { getCpuInformation } from "./src/collectors/cpu";
 import { getMemoryInformation } from "./src/collectors/memory";
@@ -6,8 +7,6 @@ import { sendMetrics } from "./api";
 
 async function main() {
     try {
-        const system = await getSystemInfo();
-
         const metrics = {
             system: await getSystemInfo(),
             cpu: await getCpuInformation(),

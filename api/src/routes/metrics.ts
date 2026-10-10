@@ -1,11 +1,10 @@
+
 import type { FastifyInstance } from "fastify";
 import {
     MetricsSchema,
     type Metrics
 } from "../schemas/metrics.schema";
-import { request } from "node:http";
-
-let latestMetrics: Metrics | null = null;
+import { pool } from "../db";
 
 export async function metricsRoutes(app: FastifyInstance) {
     app.post("/metrics", async (request, reply) => {
@@ -18,21 +17,66 @@ export async function metricsRoutes(app: FastifyInstance) {
             });
         }
 
-        latestMetrics = result.data;
+        const metrics: Metrics = result.data;
+        const timestamp = new Date(metrics.timestamp);
 
-        return reply.status(201).send({
-            success: true,
-            message: "Metrics received successfully."
-        });
-    });
-
-    app.get("/metrics", async (_request, reply) => {
-        if (latestMetrics === null) {
-            return reply.status(404).send({
-                error: "No metrics received yet."
+        if (Number.isNaN(timestamp.getTime())) {
+            return reply.status(400).send({
+                error: "Invalid metrics timestamp"
             });
         }
 
-        return reply.send(latestMetrics);
+        try {
+            await pool.execute(
+                `INSERT INTO metrics (metric_timestamp, payload)
+                 VALUES (?, ?)`,
+                [
+                    timestamp,
+                    JSON.stringify(metrics)
+                ]
+            );
+
+            return reply.status(201).send({
+                success: true,
+                message: "Metrics stored successfully."
+            });
+        } catch (error) {
+            request.log.error(error, "Failed to store metrics");
+
+            return reply.status(500).send({
+                error: "Failed to store metrics"
+            });
+        }
+    });
+
+    app.get("/metrics", async (request, reply) => {
+        try {
+            const [rows] = await pool.query(
+                `SELECT payload
+                 FROM metrics
+                 ORDER BY id DESC
+                 LIMIT 1`
+            );
+
+            const latest = (rows as { payload: Metrics | string }[])[0];
+
+            if (!latest) {
+                return reply.status(404).send({
+                    error: "No metrics received yet."
+                });
+            }
+
+            const payload = typeof latest.payload === "string"
+                ? JSON.parse(latest.payload)
+                : latest.payload;
+
+            return reply.send(payload);
+        } catch (error) {
+            request.log.error(error, "Failed to retrieve metrics");
+
+            return reply.status(500).send({
+                error: "Failed to retrieve metrics"
+            });
+        }
     });
 }

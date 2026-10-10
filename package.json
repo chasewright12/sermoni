@@ -12,6 +12,7 @@
   "type": "commonjs",
   "dependencies": {
     "fastify": "^5.12.5",
+    "mysql2": "^3.24.5",
     "systeminformation": "^5.33.15",
     "zod": "^4.6.5"
   },

@@ -1,3 +1,4 @@
+
 const API_URL = "http://localhost:3000";
 
 export async function sendMetrics(metrics: unknown) {
@@ -10,9 +11,7 @@ export async function sendMetrics(metrics: unknown) {
     });
 
     if (!response.ok) {
-        throw new Error(
-            `API returned status ${response.status}`
-        );
+        throw new Error(`API returned status ${response.status}`);
     }
 
     return await response.json();
