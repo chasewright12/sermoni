@@ -1,4 +1,4 @@
-
+import { serversRoutes } from "./routes/servers";
 import Fastify from "fastify";
 import { healthRoutes } from "./routes/health";
 import { metricsRoutes } from "./routes/metrics";
@@ -10,6 +10,7 @@ const app = Fastify({
 
 app.register(healthRoutes);
 app.register(metricsRoutes);
+app.register(serversRoutes);
 
 app.addHook("onClose", async () => {
     await pool.end();

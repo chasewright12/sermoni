@@ -7,9 +7,13 @@
 **A lightweight server monitoring system built with TypeScript.**
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+
 [![Fastify](https://img.shields.io/badge/Fastify-000000?style=flat-square&logo=fastify&logoColor=white)](https://fastify.dev/)
+
 [![MySQL](https://img.shields.io/badge/MySQL-4479A1?style=flat-square&logo=mysql&logoColor=white)](https://www.mysql.com/)
+
 [![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
+
 [![Vitest](https://img.shields.io/badge/Vitest-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev/)
 
 </div>
@@ -17,6 +21,8 @@
 Sermoni is a server monitoring project designed to collect system metrics and store them in a MySQL database through an HTTP API.
 
 The monitoring agent collects CPU, memory, disk, and system information at regular intervals. The API, built with Fastify, validates incoming payloads using Zod and stores accepted metrics in MySQL for persistent storage and retrieval.
+
+The API also includes a dedicated `servers` module for registering and managing monitored servers, organized in layers (routes, services, and repositories).
 
 The project is developed with TypeScript and includes modular API routes, automated tests with Vitest, and a Docker Compose configuration for the database.
 
@@ -32,9 +38,12 @@ The project is developed with TypeScript and includes modular API routes, automa
 - Persistent metric storage with MySQL
 - JSON payload storage for collected metrics
 - Latest metrics retrieval endpoint
+- Historical metrics endpoint with date-range filters
+- Server registration and management endpoints
+- Layered `servers` module (routes → services → repositories)
 - API health check endpoint
 - Docker Compose configuration for MySQL
-- Modular API architecture using routes and schemas
+- Modular API architecture using routes, schemas, services, and repositories
 - Automated API tests with Vitest
 - TypeScript-based implementation
 
@@ -58,6 +67,15 @@ The project is developed with TypeScript and includes modular API routes, automa
 │            Zod              │
 │                             │
 │  Validation and Routing     │
+│                             │
+│  routes/metrics.ts          │
+│  routes/servers.ts          │
+│       │                     │
+│       ▼                     │
+│  servers/services           │
+│       │                     │
+│       ▼                     │
+│  servers/repositories       │
 └──────────────┬──────────────┘
                │
                │ INSERT / SELECT
@@ -70,6 +88,8 @@ The project is developed with TypeScript and includes modular API routes, automa
 │  ├── metric_timestamp       │
 │  ├── payload (JSON)         │
 │  └── created_at             │
+│                             │
+│  servers                    │
 └─────────────────────────────┘
 ```
 
@@ -90,15 +110,23 @@ server-monitor/
 │   ├── src/
 │   │   ├── routes/
 │   │   │   ├── health.ts
-│   │   │   └── metrics.ts
+│   │   │   ├── metrics.ts
+│   │   │   └── servers.ts
 │   │   ├── schemas/
 │   │   │   └── metrics.schema.ts
+│   │   ├── servers/
+│   │   │   ├── repositories/
+│   │   │   │   └── server.repository.ts
+│   │   │   ├── schemas/
+│   │   │   ├── services/
+│   │   │   └── types/
 │   │   ├── db.ts
 │   │   └── server.ts
 │   ├── tests/
 │   │   └── server.test.ts
 │   ├── package.json
 │   └── package-lock.json
+├── dashboard/
 ├── docker-compose.yml
 ├── package.json
 ├── package-lock.json
@@ -112,9 +140,9 @@ server-monitor/
 - **TypeScript** — application development and static typing
 - **Node.js** — JavaScript runtime
 - **Fastify** — HTTP server and routing
-- **Zod** — runtime validation of incoming metric payloads
+- **Zod** — runtime validation of incoming metric and server payloads
 - **systeminformation** — system and hardware metrics collection
-- **MySQL 8.4** — persistent storage for collected metrics
+- **MySQL 8.4** — persistent storage for collected metrics and registered servers
 - **mysql2** — MySQL client for Node.js
 - **Docker Compose** — local database setup and management
 - **tsx** — TypeScript execution during development
@@ -163,7 +191,7 @@ Each record contains:
 
 Unlike in-memory storage, MySQL preserves collected records across API restarts, provided the database volume is retained.
 
-The table is initialized by the API when it starts. The MySQL service and its persistent volume are configured in `docker-compose.yml`.
+The tables are initialized by the API when it starts. The MySQL service and its persistent volume are configured in `docker-compose.yml`.
 
 ### 4. Retrieving Metrics
 
@@ -177,7 +205,56 @@ Local URL: [http://localhost:3000/metrics](http://localhost:3000/metrics)
 
 The endpoint retrieves the latest stored metric payload. If no metrics have been recorded, it returns HTTP `404 Not Found`.
 
-### 5. Health Check
+### 5. Retrieving Metric History
+
+To retrieve previously collected metrics, use:
+
+```http
+GET /metrics/history
+```
+
+Local URL: [http://localhost:3000/metrics/history](http://localhost:3000/metrics/history)
+
+The history endpoint returns stored records from newest to oldest. It supports the following query parameters:
+
+- `limit` — number of records to return. Defaults to `50` and accepts values from `1` to `200`.
+- `from` — optional start of the time range, as an ISO 8601 timestamp with a timezone.
+- `to` — optional end of the time range, as an ISO 8601 timestamp with a timezone.
+
+For example, retrieve the five most recent records:
+
+```bash
+curl "http://localhost:3000/metrics/history?limit=5"
+```
+
+Or filter records by timestamp:
+
+```bash
+curl "http://localhost:3000/metrics/history?from=2026-10-10T07:00:00Z&to=2026-10-10T07:04:00Z"
+```
+
+The response includes `count`, the number of records returned; `limit`, the requested limit; and `data`, the array of records. Each record contains its database ID, timestamps, and the original metrics payload. Query values are validated and passed to parameterized SQL queries.
+
+### 6. Servers Module
+
+The API includes a dedicated module for registering and managing monitored servers, exposed through the routes defined in `api/src/routes/servers.ts`:
+
+```http
+GET /servers
+POST /servers
+```
+
+The module is organized in layers, each with a single responsibility:
+
+- **Routes** (`src/routes/servers.ts`) — HTTP layer: receives requests, validates input, and returns responses.
+- **Schemas** (`src/servers/schemas/`) — Zod schemas that validate server payloads and parameters.
+- **Services** (`src/servers/services/`) — business logic for server operations.
+- **Repositories** (`src/servers/repositories/server.repository.ts`) — database access, using parameterized SQL queries through `mysql2`.
+- **Types** (`src/servers/types/`) — TypeScript types shared across the module.
+
+This separation keeps HTTP concerns, business rules, and persistence independent from one another, making the module easier to test and maintain.
+
+### 7. Health Check
 
 The API provides a health check endpoint:
 
@@ -237,7 +314,6 @@ MYSQL_ROOT_PASSWORD=your_secure_root_password
 MYSQL_DATABASE=sermoni
 MYSQL_USER=sermoni
 MYSQL_PASSWORD=your_secure_database_password
-
 MYSQL_HOST=127.0.0.1
 MYSQL_PORT=3306
 ```
@@ -273,7 +349,7 @@ cd ~/projects/server-monitor/api
 npm run dev
 ```
 
-The API initializes the `metrics` table and starts listening on port `3000`.
+The API initializes the database tables and starts listening on port `3000`.
 
 Verify that the health endpoint responds:
 
@@ -310,6 +386,9 @@ Run the API and agent in separate terminals. Start MySQL before starting the API
 | `GET` | `/health` | Checks API availability |
 | `POST` | `/metrics` | Validates and stores a metric payload |
 | `GET` | `/metrics` | Retrieves the latest stored metrics |
+| `GET` | `/metrics/history` | Retrieves historical metrics with optional limit and date filters |
+| `GET` | `/servers` | Lists registered servers |
+| `POST` | `/servers` | Validates and registers a new server |
 
 ## Database Verification
 
@@ -323,9 +402,7 @@ Then run:
 
 ```sql
 USE sermoni;
-
 SHOW TABLES;
-
 SELECT id, metric_timestamp, created_at
 FROM metrics
 ORDER BY id DESC
@@ -341,15 +418,16 @@ FROM metrics;
 
 ## Validation
 
-The API uses Zod to validate the expected structure and data types of incoming metrics, including:
+The API uses Zod to validate the expected structure and data types of incoming metrics and server payloads, including:
 
 - System and hardware information
 - CPU usage
 - Memory statistics
 - Disk information
 - Timestamp
+- Server registration data
 
-The TypeScript `Metrics` type is inferred from the Zod schema, keeping runtime validation and static typing aligned.
+The TypeScript `Metrics` type is inferred from the Zod schema, keeping runtime validation and static typing aligned. The `servers` module follows the same approach, with its schemas and types kept in their own folders.
 
 ## Testing
 
@@ -368,19 +446,18 @@ Tests that interact with MySQL require the database and schema to be available, 
 
 Sermoni is a learning and portfolio project, and it is not yet intended for production deployment.
 
-- No web dashboard is available yet.
+- The web dashboard is still in development.
 - No authentication between the agent and API is implemented.
 - No alerting or notification system is implemented.
-- Multi-server registration and management are not implemented.
-- Historical aggregation and advanced metric queries are not implemented.
+- Server management is still basic, and advanced multi-server features are not implemented.
+- Historical aggregation and advanced metric analytics are not implemented.
 - API access control and production security hardening remain future work.
-- The current API endpoint returns the latest stored metric payload rather than a complete historical dataset.
 
 ## Future Improvements
 
 - Web dashboard with CPU, memory, and disk charts
-- Historical metric queries and aggregation
-- Multiple-server registration and management
+- Historical metric aggregation and advanced filtering
+- Advanced multi-server management
 - Agent authentication and API keys
 - Configurable resource usage thresholds
 - Alerting and notifications
@@ -402,6 +479,7 @@ This project is being developed to practice:
 - Automated testing
 - System and hardware monitoring
 - Modular backend architecture
+- Layered design (routes, services, repositories)
 - Software design and maintainability
 
 ## License
@@ -413,7 +491,9 @@ This project is intended for educational and portfolio purposes. A formal open-s
 <div align="center">
 
 <a href="https://github.com/chasewright12">
+
   <img src="https://images.weserv.nl/?url=github.com/chasewright12.png&w=200&h=200&fit=cover&mask=circle" width="150" alt="GitHub profile">
+
 </a>
 
 ### Lucas Marques
@@ -421,6 +501,7 @@ This project is intended for educational and portfolio purposes. A formal open-s
 Brazilian student passionate about programming, computer science, backend development, and systems engineering.
 
 [![GitHub](https://img.shields.io/badge/GitHub-chasewright12-181717?style=flat-square&logo=github)](https://github.com/chasewright12)
+
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-lucasmarquesdev-0A66C2?style=flat-square&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/lucasmarquesdev/)
 
 **A Brazilian open-source project.**

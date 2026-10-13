@@ -2,10 +2,23 @@
 import mysql from "mysql2/promise";
 import dotenv from "dotenv";
 import path from "node:path";
+import { existsSync } from "node:fs";
 
-dotenv.config({
-    path: path.resolve(process.cwd(), "../.env")
-});
+const envCandidates = [
+    path.resolve(process.cwd(), ".env"),
+    path.resolve(process.cwd(), "../.env")
+];
+
+const envPath = envCandidates.find((candidate) =>
+    existsSync(candidate)
+);
+
+if (!envPath) {
+    throw new Error("Could not find the project .env file");
+}
+
+dotenv.config({ path: envPath });
+
 
 const database = process.env.MYSQL_DATABASE || "sermoni";
 
@@ -23,6 +36,7 @@ export const pool = mysql.createPool({
     connectionLimit: 10
 });
 
+
 export async function initializeDatabase() {
     await pool.execute(`
         CREATE TABLE IF NOT EXISTS metrics (
@@ -31,6 +45,18 @@ export async function initializeDatabase() {
             payload JSON NOT NULL,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_metric_timestamp (metric_timestamp)
+        )
+    `);
+
+    await pool.execute(`
+        CREATE TABLE IF NOT EXISTS servers (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+            hostname VARCHAR(255) NOT NULL,
+            operating_system VARCHAR(100) NOT NULL,
+            agent_version VARCHAR(50) NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_seen TIMESTAMP NULL DEFAULT NULL,
+            UNIQUE KEY uq_servers_hostname (hostname)
         )
     `);
 
