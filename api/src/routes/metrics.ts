@@ -5,7 +5,8 @@ import {
     type Metrics
 } from "../schemas/metrics.schema";
 import { pool } from "../db";
-import { resolveServerFromMetrics } from "../servers/services/server.service";
+import { requireAgent } from "../auth/hooks";
+import { markServerSeen } from "../servers/services/server.service";
 
 const ServerIdSchema = z.coerce.number().int().positive();
 
@@ -29,47 +30,59 @@ type HistoryRow = {
 };
 
 export async function metricsRoutes(app: FastifyInstance) {
-    app.post("/metrics", async (request, reply) => {
-        const result = MetricsSchema.safeParse(request.body);
+    app.post(
+        "/metrics",
+        { onRequest: requireAgent },
+        async (request, reply) => {
+            const server = request.agentServer;
 
-        if (!result.success) {
-            return reply.status(400).send({
-                error: "Invalid metrics",
-                details: result.error.issues
-            });
+            if (!server) {
+                return reply.status(401).send({
+                    error: "Invalid or missing API key"
+                });
+            }
+
+            const result = MetricsSchema.safeParse(request.body);
+
+            if (!result.success) {
+                return reply.status(400).send({
+                    error: "Invalid metrics",
+                    details: result.error.issues
+                });
+            }
+
+            const metrics: Metrics = result.data;
+            const timestamp = new Date(metrics.timestamp);
+
+            if (Number.isNaN(timestamp.getTime())) {
+                return reply.status(400).send({
+                    error: "Invalid metrics timestamp"
+                });
+            }
+
+            try {
+                await pool.execute(
+                    `INSERT INTO metrics (server_id, metric_timestamp, payload)
+                     VALUES (?, ?, ?)`,
+                    [server.id, timestamp, JSON.stringify(metrics)]
+                );
+
+                await markServerSeen(server.id);
+
+                return reply.status(201).send({
+                    success: true,
+                    message: "Metrics stored successfully.",
+                    serverId: server.id
+                });
+            } catch (error) {
+                request.log.error(error, "Failed to store metrics");
+
+                return reply.status(500).send({
+                    error: "Failed to store metrics"
+                });
+            }
         }
-
-        const metrics: Metrics = result.data;
-        const timestamp = new Date(metrics.timestamp);
-
-        if (Number.isNaN(timestamp.getTime())) {
-            return reply.status(400).send({
-                error: "Invalid metrics timestamp"
-            });
-        }
-
-        try {
-            const server = await resolveServerFromMetrics(metrics);
-
-            await pool.execute(
-                `INSERT INTO metrics (server_id, metric_timestamp, payload)
-                 VALUES (?, ?, ?)`,
-                [server.id, timestamp, JSON.stringify(metrics)]
-            );
-
-            return reply.status(201).send({
-                success: true,
-                message: "Metrics stored successfully.",
-                serverId: server.id
-            });
-        } catch (error) {
-            request.log.error(error, "Failed to store metrics");
-
-            return reply.status(500).send({
-                error: "Failed to store metrics"
-            });
-        }
-    });
+    );
 
     app.get("/metrics/history", async (request, reply) => {
         const result = HistoryQuerySchema.safeParse(request.query);

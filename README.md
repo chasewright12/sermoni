@@ -15,95 +15,88 @@
   <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker"></a>
   <a href="https://vitest.dev/"><img src="https://img.shields.io/badge/Vitest-6E9F18?style=flat-square&logo=vitest&logoColor=white" alt="Vitest"></a>
 </p>
+
 </div>
 
-Sermoni is a server monitoring project designed to collect system metrics and store them in a MySQL database through an HTTP API.
+Sermoni is a server monitoring project designed to collect system metrics and store them in a MySQL database through an HTTP API. A TypeScript monitoring agent periodically collects CPU, memory, disk, and system information. The Fastify API validates incoming payloads with Zod and persists accepted metrics in MySQL.
 
-The monitoring agent collects CPU, memory, disk, and system information at regular intervals. The API, built with Fastify, validates incoming payloads using Zod and stores accepted metrics in MySQL for persistent storage and retrieval.
+Each metric is associated with a registered server. The API authenticates monitoring agents with API keys, tracks each server's last contact, and exposes endpoints for retrieving the latest metrics and historical data. A dedicated `servers` module separates routes, services, repositories, schemas, and types.
 
-Each metric is linked to the server that sent it. The API identifies servers by hostname, registers new ones automatically, and keeps track of when each one was last seen. A dedicated `servers` module, organized in layers (routes, services, and repositories), handles server registration and management.
+Sermoni also includes an automated alerting pipeline. Configurable rules evaluate CPU, memory, disk usage, and server availability. Alert events are persisted in MySQL, transition between `firing` and `resolved`, and can be sent through configured notification channels such as ntfy. The repository includes a React, Vite, and Recharts dashboard for viewing monitored servers and resource usage.
 
-A web dashboard built with React, Vite, and Recharts displays the collected data, with a server list, live gauges, and usage charts.
-
-The project is developed with TypeScript and includes modular API routes, automated tests with Vitest, and a Docker Compose configuration for the database.
+The project is developed with TypeScript and includes modular API routes, a periodic alert scheduler, automated tests with Vitest, and a Docker Compose configuration for MySQL.
 
 ## Features
 
 - System and hardware information collection
 - CPU usage monitoring
-- Memory usage monitoring based on available memory, excluding reclaimable cache
+- Memory usage monitoring based on used and available memory
 - Disk usage monitoring, filtering out virtual filesystems
 - Periodic metric collection and HTTP transmission
 - REST API built with Fastify
 - Runtime request validation with Zod
-- Persistent metric storage with MySQL
-- JSON payload storage for collected metrics
+- Agent authentication with hashed API keys
+- Administrative authentication for API key issuance and alert-rule management
+- Persistent metric storage with MySQL and JSON payloads
 - Metrics linked to servers through a `server_id` foreign key
-- Automatic server registration by hostname
-- Server `last_seen` tracking and online/offline status
+- Server registration and `last_seen` tracking
 - Latest metrics retrieval endpoint
-- Historical metrics endpoint with date-range and server filters
-- Server registration and management endpoints
+- Historical metrics endpoint with date-range, server, and limit filters
 - Layered `servers` module (routes → services → repositories)
 - Configurable CORS origins through environment variables
 - UTC timestamps stored and read consistently
+- Automated alert rules for CPU, memory, disk, and offline servers
+- Global alert rules and server-specific overrides
+- Configurable thresholds, evaluation windows, and enabled/disabled rules
+- Alert lifecycle tracking with `firing` and `resolved` statuses
+- Duplicate-alert prevention while an alert is already firing
+- Periodic alert evaluation, running immediately at startup and then every 30 seconds
+- Notification delivery through configured channels: Discord, Telegram, Slack, ntfy, and SMTP email
+- Manual notification test endpoint
 - Web dashboard with live gauges, usage charts, and a server list
 - API health check endpoint
 - Docker Compose configuration for MySQL
-- Modular API architecture using routes, schemas, services, and repositories
-- Automated API tests with Vitest
+- Automated evaluator, rule-selection, alert-lifecycle, and API tests with Vitest
 - TypeScript-based implementation
 
 ## Architecture
 
 ```text
 ┌─────────────────────────────────┐    ┌─────────────────────────────────┐
-│         Monitoring Agent        │    │          Web Dashboard          │
+│          Monitoring Agent       │    │          Web Dashboard          │
 │                                 │    │                                 │
-│  CPU · Memory · Disk            │    │  React · Vite · Recharts        │
+│  CPU · Memory · Disk            │    │  React · Vite · Recharts         │
 │  System and Hardware Info       │    │  Gauges · Charts · Server list  │
 └────────────────┬────────────────┘    └────────────────┬────────────────┘
-                 │                                      │
-                 │ HTTP POST /metrics                   │ GET /servers
-                 │                                      │ GET /metrics/history
-                 ▼                                      ▼
-┌────────────────┴──────────────────────────────────────┴────────────────┐
-│                             Monitoring API                             │
-│                                                                        │
-│  Fastify + Zod + CORS                                                  │
-│                                                                        │
-│  Validation and Routing                                                │
-│                                                                        │
-│  routes/metrics.ts          routes/servers.ts                          │
-│          │                          │                                  │
-│          └────────────┬─────────────┘                                  │
-│                       ▼                                                │
-│               servers/services                                         │
-│                       │                                                │
-│                       ▼                                                │
-│             servers/repositories                                       │
-└────────────────────────────────────┬───────────────────────────────────┘
-                                     │
-                                     │ INSERT / SELECT / UPDATE
-                                     ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                               MySQL 8.4                                │
-│                                                                        │
-│  metrics                                                               │
-│  ├── id                                                                │
-│  ├── server_id (FK → servers.id)                                       │
-│  ├── metric_timestamp                                                  │
-│  ├── payload (JSON)                                                    │
-│  └── created_at                                                        │
-│                                                                        │
-│  servers                                                               │
-│  ├── id                                                                │
-│  ├── hostname (unique)                                                 │
-│  ├── operating_system                                                  │
-│  ├── agent_version                                                     │
-│  ├── created_at                                                        │
-│  └── last_seen                                                         │
-└────────────────────────────────────────────────────────────────────────┘
+                 │                                       │
+                 │ POST /metrics                         │ GET /servers
+                 │ Authorization: Bearer API_KEY        │ GET /metrics/history
+                 ▼                                       ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                            Monitoring API                               │
+│                                                                         │
+│  Fastify · Zod · CORS · Agent/Admin authentication                      │
+│                                                                         │
+│  routes/metrics.ts  routes/servers.ts  routes/serverKeys.ts              │
+│  routes/alerts.ts   routes/health.ts                                     │
+│           │                 │                  │                         │
+│           ▼                 ▼                  ▼                         │
+│  Server services/repositories       Alert service                       │
+│                                     ├── Rule evaluator                  │
+│                                     ├── 30-second scheduler             │
+│                                     └── Notification channels           │
+└───────────────────────────────┬─────────────────────────────────────────┘
+                                │
+                                │ INSERT / SELECT / UPDATE
+                                ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                                MySQL 8.4                                │
+│                                                                         │
+│  servers       metrics       alert_rules       alerts                   │
+└─────────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+                  Discord · Telegram · Slack · ntfy · SMTP
 ```
 
 ## Project Structure
@@ -121,9 +114,20 @@ server-monitor/
 │   └── index.ts
 ├── api/
 │   ├── src/
+│   │   ├── alerts/
+│   │   │   ├── evaluator.ts
+│   │   │   ├── notifier.ts
+│   │   │   ├── scheduler.ts
+│   │   │   └── types.ts
+│   │   ├── auth/
+│   │   │   └── hooks.ts
+│   │   ├── repositories/
+│   │   │   └── alert.repository.ts
 │   │   ├── routes/
+│   │   │   ├── alerts.ts
 │   │   │   ├── health.ts
 │   │   │   ├── metrics.ts
+│   │   │   ├── serverKeys.ts
 │   │   │   └── servers.ts
 │   │   ├── schemas/
 │   │   │   └── metrics.schema.ts
@@ -134,9 +138,14 @@ server-monitor/
 │   │   │   ├── services/
 │   │   │   │   └── server.service.ts
 │   │   │   └── types/
+│   │   ├── services/
+│   │   │   └── alert.service.ts
 │   │   ├── db.ts
 │   │   └── server.ts
 │   ├── tests/
+│   │   ├── alert.service.lifecycle.test.ts
+│   │   ├── alert.service.test.ts
+│   │   ├── alerts.evaluator.test.ts
 │   │   └── server.test.ts
 │   ├── package.json
 │   └── package-lock.json
@@ -165,7 +174,7 @@ server-monitor/
 ├── docker-compose.yml
 ├── package.json
 ├── package-lock.json
-├── .env
+├── .env                 # local only; never commit
 ├── .gitignore
 └── README.md
 ```
@@ -176,9 +185,9 @@ server-monitor/
 - **Node.js** — JavaScript runtime
 - **Fastify** — HTTP server and routing
 - **@fastify/cors** — configurable CORS for the dashboard
-- **Zod** — runtime validation of incoming metric and server payloads
+- **Zod** — runtime validation of incoming metric, server, and alert-rule payloads
 - **systeminformation** — system and hardware metrics collection
-- **MySQL 8.4** — persistent storage for collected metrics and registered servers
+- **MySQL 8.4** — persistent storage for metrics, servers, rules, and alert events
 - **mysql2** — MySQL client for Node.js
 - **dotenv** — environment variable loading
 - **React** — dashboard user interface
@@ -192,41 +201,41 @@ server-monitor/
 
 ### 1. Monitoring Agent
 
-The agent runs on the machine being monitored and periodically collects:
+The agent runs on the monitored machine and periodically collects:
 
 - CPU usage
 - Total, used, and available memory
-- Disk usage for real storage devices
+- Disk usage for available storage devices
 - Operating system information
 - Hostname and hardware details
 - CPU core count
 - System uptime
 
-Memory usage is calculated as total memory minus available memory. This avoids counting the Linux file cache as used memory, which would otherwise keep usage close to 100%. The disk collector ignores virtual filesystems such as `tmpfs`, `squashfs`, and internal system mounts.
+Memory usage is based on available memory so reclaimable Linux file cache is not incorrectly treated as fully occupied RAM. The disk collector filters virtual filesystems and internal system mounts.
 
-The collected data is assembled into a JSON payload and sent to the API using HTTP `POST /metrics`.
+The collected data is assembled into a JSON payload and sent to `POST /metrics` with an API key in the `Authorization: Bearer <key>` header. The API key is issued for a registered server and its hash is stored in MySQL; the raw key is returned only when issued, so store it securely in the local `.env` file as `SERMONI_API_KEY`.
 
-### 2. Monitoring API
+### 2. Monitoring API and Authentication
 
 The API receives metric submissions through:
 
 ```http
 POST /metrics
+Authorization: Bearer <SERMONI_API_KEY>
 ```
 
-Before processing a payload, the API validates its structure using the Zod schema defined in `api/src/schemas/metrics.schema.ts`.
+The API authenticates the agent before validating the payload. The payload is then validated using the Zod schema in `api/src/schemas/metrics.schema.ts`.
 
-- Valid payloads are linked to a server, stored in MySQL, and return HTTP `201 Created` with the `serverId`.
-- Invalid payloads return HTTP `400 Bad Request`.
+- Valid, authenticated payloads are stored in MySQL and return HTTP `201 Created`, including the associated `serverId`.
+- Invalid payloads from an authenticated agent return HTTP `400 Bad Request`.
+- Missing or invalid agent keys return HTTP `401 Unauthorized`.
 - Database errors return HTTP `500 Internal Server Error`.
 
-The server is identified by the `system.hostname` field of the payload. If no server with that hostname exists yet, it is registered automatically. In every case, the server's `last_seen` value is updated.
+Administrative operations use `ADMIN_TOKEN` through the `Authorization: Bearer <token>` header. The token protects API key issuance, alert-rule creation and updates, and the notification test endpoint. Keep admin and agent credentials separate.
 
 ### 3. MySQL Persistence
 
-The API stores accepted metric payloads in the `metrics` table.
-
-Each record contains:
+The API stores accepted metric payloads in `metrics`. Each record contains:
 
 - `id` — unique record identifier
 - `server_id` — the server that sent the metrics, referencing `servers.id`
@@ -234,113 +243,186 @@ Each record contains:
 - `payload` — collected metrics stored as JSON
 - `created_at` — database record creation time
 
-Registered servers are stored in the `servers` table, which contains `id`, `hostname` (unique), `operating_system`, `agent_version`, `created_at`, and `last_seen`.
+The `servers` table contains the server hostname, operating system, agent version, creation time, API-key hash, and `last_seen` timestamp. Server IDs connect metric records and alert events to a monitored server.
 
-Unlike in-memory storage, MySQL preserves collected records across API restarts, provided the database volume is retained.
+The alerting subsystem uses two additional tables:
 
-The tables are initialized by the API when it starts, with `servers` created before `metrics` because of the foreign key. If an existing `metrics` table does not have the `server_id` column yet, the API adds it automatically. Metrics stored before this column existed keep a `NULL` `server_id`.
+- `alert_rules` stores the metric, optional server scope, threshold, duration, enabled state, and creation/update timestamps.
+- `alerts` stores each alert event, including server, rule, metric, status, observed value, threshold, start time, and optional resolution time.
 
-The database connection uses UTC, so timestamps are stored and read consistently regardless of the machine's time zone. The MySQL service and its persistent volume are configured in `docker-compose.yml`.
+The database connection uses UTC so timestamps can be compared consistently. MySQL and its persistent volume are configured in `docker-compose.yml`.
+
+**Alert schema setup:** the current repository does not yet include a migration framework for `alert_rules` and `alerts`. On a fresh database, create these tables after starting MySQL and before relying on alert endpoints. Connect to the `sermoni` database and run:
+
+```sql
+CREATE TABLE IF NOT EXISTS alert_rules (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    server_id BIGINT UNSIGNED NULL,
+    metric ENUM('cpu', 'memory', 'disk', 'offline') NOT NULL,
+    threshold DOUBLE NOT NULL,
+    duration_seconds INT UNSIGNED NOT NULL DEFAULT 0,
+    enabled TINYINT(1) NOT NULL DEFAULT 1,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_alert_rules_server_metric (server_id, metric),
+    CONSTRAINT fk_alert_rules_server
+        FOREIGN KEY (server_id) REFERENCES servers(id) ON DELETE CASCADE,
+    CONSTRAINT chk_alert_rules_threshold_positive CHECK (threshold > 0),
+    CONSTRAINT chk_alert_rules_percentage_threshold
+        CHECK (metric = 'offline' OR threshold <= 100)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    server_id BIGINT UNSIGNED NOT NULL,
+    rule_id BIGINT UNSIGNED NULL,
+    metric ENUM('cpu', 'memory', 'disk', 'offline') NOT NULL,
+    status ENUM('firing', 'resolved') NOT NULL DEFAULT 'firing',
+    value DOUBLE NOT NULL,
+    threshold DOUBLE NOT NULL,
+    started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    resolved_at TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (id),
+    KEY idx_alerts_server_status (server_id, status),
+    KEY idx_alerts_rule_status (rule_id, status),
+    KEY idx_alerts_started_at (started_at),
+    CONSTRAINT fk_alerts_server
+        FOREIGN KEY (server_id) REFERENCES servers(id) ON DELETE CASCADE,
+    CONSTRAINT fk_alerts_rule
+        FOREIGN KEY (rule_id) REFERENCES alert_rules(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+```
 
 ### 4. Retrieving Metrics
 
-The API exposes the following endpoint:
+The latest metric payload is available through:
 
 ```http
 GET /metrics
 ```
 
-Local URL: [http://localhost:3000/metrics](http://localhost:3000/metrics)
-
-The endpoint retrieves the latest stored metric payload. The optional `serverId` query parameter returns the latest payload of a specific server. If no metrics have been recorded, it returns HTTP `404 Not Found`.
+The optional `serverId` query parameter returns the latest payload for a specific server. If no metrics have been recorded, the endpoint returns HTTP `404 Not Found`.
 
 ```bash
-curl "http://localhost:3000/metrics?serverId=1"
+curl "http://localhost:3000/metrics?serverId=3"
 ```
 
 ### 5. Retrieving Metric History
 
-To retrieve previously collected metrics, use:
+Use `GET /metrics/history` to retrieve stored records from newest to oldest. It supports these query parameters:
 
-```http
-GET /metrics/history
-```
+- `limit` — number of records to return. Defaults to `50`; valid range is `1` to `200`.
+- `from` — optional start of the time range as an ISO 8601 timestamp with a timezone.
+- `to` — optional end of the time range as an ISO 8601 timestamp with a timezone.
+- `serverId` — optional server identifier.
 
-Local URL: [http://localhost:3000/metrics/history](http://localhost:3000/metrics/history)
-
-The history endpoint returns stored records from newest to oldest. It supports the following query parameters:
-
-- `limit` — number of records to return. Defaults to `50` and accepts values from `1` to `200`.
-- `from` — optional start of the time range, as an ISO 8601 timestamp with a timezone.
-- `to` — optional end of the time range, as an ISO 8601 timestamp with a timezone.
-- `serverId` — optional server identifier, to return only the records of one server.
-
-For example, retrieve the five most recent records:
+Examples:
 
 ```bash
 curl "http://localhost:3000/metrics/history?limit=5"
-```
-
-Retrieve the most recent records of a specific server:
-
-```bash
-curl "http://localhost:3000/metrics/history?serverId=1&limit=5"
-```
-
-Or filter records by timestamp:
-
-```bash
+curl "http://localhost:3000/metrics/history?serverId=3&limit=5"
 curl "http://localhost:3000/metrics/history?from=2026-10-10T07:00:00Z&to=2026-10-10T07:04:00Z"
 ```
 
-The response includes `count`, the number of records returned; `limit`, the requested limit; and `data`, the array of records. Each record contains its database ID, `server_id`, timestamps, and the original metrics payload. Query values are validated and passed to parameterized SQL queries.
+The response includes `count`, `limit`, and `data`. Each record includes its database ID, `server_id`, timestamps, and the original payload. Query parameters are validated and passed to parameterized SQL queries.
 
-### 6. Servers Module
+### 6. Servers Module and API Keys
 
-The API includes a dedicated module for registering and managing monitored servers, exposed through the routes defined in `api/src/routes/servers.ts`:
+Server management is implemented in `api/src/routes/servers.ts` and the layered `servers` module. Routes receive HTTP requests, Zod schemas validate input, services implement business rules, and repositories perform database operations through `mysql2`.
+
+A server must exist in `servers` before an agent API key can be issued. Register or inspect servers through `POST /servers`, `GET /servers`, and `GET /servers/:id`. To issue or rotate an agent key, use the admin-protected endpoint:
 
 ```http
-GET /servers
-POST /servers
+POST /servers/:id/api-key
+Authorization: Bearer <ADMIN_TOKEN>
 ```
 
-The module is organized in layers, each with a single responsibility:
+The response contains the new `apiKey` once. Store it in the root `.env` as `SERMONI_API_KEY` and restart the agent. The database stores a hash, so the raw key cannot be retrieved later. Issuing a new key replaces the previous key for that server.
 
-- **Routes** (`src/routes/servers.ts`) — HTTP layer: receives requests, validates input, and returns responses.
-- **Schemas** (`src/servers/schemas/`) — Zod schemas that validate server payloads and parameters.
-- **Services** (`src/servers/services/`) — business logic for server operations, including identifying the server that sent a set of metrics.
-- **Repositories** (`src/servers/repositories/server.repository.ts`) — database access, using parameterized SQL queries through `mysql2`.
-- **Types** (`src/servers/types/`) — TypeScript types shared across the module.
+### 7. Automated Alerts
 
-This separation keeps HTTP concerns, business rules, and persistence independent from one another, making the module easier to test and maintain.
+The alert service evaluates enabled rules against recent metric points and each server's `last_seen` timestamp. The scheduler performs an initial evaluation at startup and then runs every 30 seconds.
 
-Servers can be registered manually or automatically. When metrics arrive from an unknown hostname, the service registers the server using the operating system reported in the payload. Servers created this way have `agent_version` set to `unknown`.
+Supported metrics:
 
-### 7. Web Dashboard
+- `cpu` — CPU usage percentage
+- `memory` — memory usage percentage
+- `disk` — percentage for the largest reported disk in each metric sample
+- `offline` — seconds since the server was last seen
 
-The dashboard, located in `dashboard/`, is a React application built with Vite and Recharts. It reads data from the API every 5 seconds and provides:
+Rules can be global (`serverId: null`) or scoped to a specific server. A server-specific rule overrides the global rule for that metric. Disabled rules are not evaluated. For percentage metrics, thresholds must be greater than `0` and at most `100`; the offline threshold is expressed in seconds.
 
-- A server list showing each server's status: **Online** (metrics received in the last minute), **Offline** (with the time since it was last seen), or **No data**
-- Gauges for CPU, memory, and disk usage, with a status that changes at 70% (warning) and 90% (critical)
-- A usage chart with CPU, memory, and disk over time, with series that can be toggled
+For CPU, memory, and disk rules, `durationSeconds: 0` evaluates the latest fresh sample immediately. A positive duration requires recent readings above the threshold across the configured time window. Samples older than 60 seconds are considered stale and do not trigger percentage-based alerts. Offline rules use their threshold as the silence duration.
+
+When a condition first becomes true, the service creates a `firing` record and sends a notification. It avoids creating duplicate alerts while an alert for the same rule is already open. When the condition recovers, the record is marked `resolved` and a resolution notification is sent. Alert records remain in the database as history.
+
+#### Alert rules endpoints
+
+| Method | Endpoint | Description | Access |
+|---|---|---|---|
+| `GET` | `/alert-rules` | Lists configured alert rules | No admin token currently required |
+| `POST` | `/alert-rules` | Creates a rule | Admin token |
+| `PATCH` | `/alert-rules/:id` | Updates a rule threshold, duration, or enabled state | Admin token |
+| `GET` | `/alerts` | Lists alert history | No admin token currently required |
+| `POST` | `/alerts/test` | Sends a test notification to configured channels | Admin token |
+
+`GET /alerts` accepts `status` (`firing` or `resolved`), `serverId`, and `limit` (from `1` to `200`) query parameters.
+
+Example: create a global CPU rule for usage above 80% sustained for 60 seconds:
+
+```json
+{
+  "serverId": null,
+  "metric": "cpu",
+  "threshold": 80,
+  "durationSeconds": 60,
+  "enabled": true
+}
+```
+
+Send it to `POST /alert-rules` with `Authorization: Bearer <ADMIN_TOKEN>` and `Content-Type: application/json`.
+
+### 8. Notifications
+
+The notifier sends alert and recovery events to every configured channel. The currently supported integrations are:
+
+| Channel | Environment variables |
+|---|---|
+| ntfy | `NTFY_URL`; optional `NTFY_TOKEN` |
+| Discord | `DISCORD_WEBHOOK_URL` |
+| Telegram | `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` |
+| Slack | `SLACK_WEBHOOK_URL` |
+| SMTP email | `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, `ALERT_EMAIL_TO`; optional `SMTP_PORT` and `ALERT_EMAIL_FROM` |
+
+The ntfy channel is suitable for testing push notifications on a phone. Set `NTFY_URL` to the topic URL, such as `https://ntfy.sh/<your-random-topic>`, and subscribe to the same topic in the ntfy app. Topics on the public `ntfy.sh` service are not private: use a long, random topic name and avoid sensitive message content. Configure authentication or a private ntfy instance if stronger privacy is required.
+
+The test endpoint `POST /alerts/test`, protected by `ADMIN_TOKEN`, sends a sample CPU alert to every configured notification channel. When no channel is configured, the endpoint returns HTTP `400`. Notification delivery results indicate which configured channels accepted or failed to send the message.
+
+### 9. Web Dashboard
+
+The dashboard, located in `dashboard/`, is a React application built with Vite and Recharts. It reads data from the API every five seconds and provides:
+
+- A server list showing **Online** (metrics received within the last minute), **Offline**, or **No data**
+- Gauges for CPU, memory, and disk usage, with warning and critical states at configured UI thresholds
+- Usage charts for CPU, memory, and disk over time, with toggleable series
 - A storage panel listing each disk
 - A system panel with operating system, architecture, hardware, CPU cores, and uptime
 - A selector for the number of readings displayed (30, 60, 120, or 200) and a pause button
 - Messages for connection errors, missing servers, and servers without metrics
 
-The dashboard displays one server at a time. It selects the most recently seen server by default, and clicking another server in the list switches the gauges and charts to it.
+The dashboard displays one server at a time. It selects a recently seen server by default; selecting another server changes the gauges and charts. Alert-rule management and alert history are currently exposed through the API rather than a dedicated dashboard interface.
 
-Local URL: [http://localhost:5173](http://localhost:5173)
+Local URL: <http://localhost:5173>
 
-### 8. Health Check
+### 10. Health Check
 
-The API provides a health check endpoint:
+The API provides a health endpoint:
 
 ```http
 GET /health
 ```
-
-Local URL: [http://localhost:3000/health](http://localhost:3000/health)
 
 Example response:
 
@@ -350,7 +432,7 @@ Example response:
 }
 ```
 
-This endpoint checks API availability; it should not be interpreted as a complete database health check.
+This endpoint checks API availability; it should not be interpreted as a complete database or notification-provider health check.
 
 ## Installation and Setup
 
@@ -369,31 +451,23 @@ cd server-monitor
 
 ### 2. Install Dependencies
 
-From the project root:
+Install root, API, and dashboard dependencies:
 
 ```bash
 npm install
+cd api && npm install && cd ..
+cd dashboard && npm install && cd ..
 ```
 
-Install the API dependencies separately:
+Ensure Vitest is installed as a development dependency at the project root so test runs are repeatable:
 
 ```bash
-cd api
-npm install
-cd ..
-```
-
-Install the dashboard dependencies:
-
-```bash
-cd dashboard
-npm install
-cd ..
+npm install -D vitest
 ```
 
 ### 3. Configure Environment Variables
 
-Create a `.env` file in the project root. Set your own database credentials:
+Create a `.env` file in the project root with your own values:
 
 ```dotenv
 MYSQL_ROOT_PASSWORD=your_secure_root_password
@@ -403,13 +477,17 @@ MYSQL_PASSWORD=your_secure_database_password
 MYSQL_HOST=127.0.0.1
 MYSQL_PORT=3306
 CORS_ORIGIN=http://localhost:5173
+ADMIN_TOKEN=replace_with_a_long_random_admin_token
+NTFY_URL=https://ntfy.sh/replace-with-a-long-random-topic
+# NTFY_TOKEN=optional_ntfy_token
+# SERMONI_API_KEY=populated_after_issuing_a_server_key
 ```
 
-`CORS_ORIGIN` defines which origins may call the API. It accepts multiple origins separated by commas, for example `http://localhost:5173,http://127.0.0.1:5173`. If it is not set, the API allows `http://localhost:5173`.
+`ADMIN_TOKEN` protects administrative operations. `SERMONI_API_KEY` is the key issued for the server being monitored; obtain it after the server record exists, then add it to `.env`. Do not commit `.env`, API keys, admin tokens, webhook URLs, or database credentials.
 
-Replace the example passwords with your own values. Do not commit `.env` or expose database credentials in public repositories.
+`CORS_ORIGIN` controls which browser origins may call the API. Multiple origins may be separated by commas. If it is omitted, the API defaults to `http://localhost:5173`.
 
-The dashboard reads the API address from `VITE_API_URL`, which defaults to `http://localhost:3000`. To change it, create `dashboard/.env`:
+The dashboard reads its API address from `VITE_API_URL`, which defaults to `http://localhost:3000`. To override it, create `dashboard/.env`:
 
 ```dotenv
 VITE_API_URL=http://localhost:3000
@@ -421,38 +499,35 @@ From the project root:
 
 ```bash
 docker compose up -d
-```
-
-Check the service status:
-
-```bash
 docker compose ps
 ```
 
-Wait until the MySQL service reports that it is healthy.
+Wait until the MySQL service reports that it is healthy. The Compose configuration binds MySQL to `127.0.0.1:3306` and uses a named volume for persistence.
 
-The Compose configuration maps MySQL to `127.0.0.1:3306` and uses a named Docker volume to persist database files.
-
-**Important:** MySQL initializes its database and user credentials when the data directory is first created. Changing `.env` later does not automatically change credentials in an existing database volume.
+MySQL initializes its database and user credentials when the data directory is first created. Changing `.env` later does not automatically change credentials in an existing database volume.
 
 ### 5. Start the API
 
 Open a terminal:
 
 ```bash
-cd ~/projects/server-monitor/api
+cd api
 npm run dev
 ```
 
-The API initializes the database tables and starts listening on port `3000`.
+The API initializes its existing database structures and listens on port `3000`. Ensure the `alert_rules` and `alerts` tables have also been created using the SQL in the **MySQL Persistence** section; the current project does not yet apply that alert schema through migrations automatically.
 
-Verify that the health endpoint responds:
+Verify the health endpoint:
 
 ```bash
 curl http://localhost:3000/health
 ```
 
-### 6. Start the Monitoring Agent
+### 6. Register a Server and Issue an Agent Key
+
+Register a server through `POST /servers` if it does not already exist. Then issue its agent API key through `POST /servers/:id/api-key`, authenticated with `ADMIN_TOKEN`. The API returns the key once; save it in the root `.env` as `SERMONI_API_KEY`. Do not put the key into source code or commit it.
+
+### 7. Start the Monitoring Agent
 
 Open a second terminal:
 
@@ -461,9 +536,9 @@ cd ~/projects/server-monitor
 npx tsx agent/index.ts
 ```
 
-The agent collects system metrics and sends them to the API periodically. The first metrics from a new hostname register the server automatically. Keep both the API and the agent running during local monitoring.
+The agent collects system metrics and sends them to `POST /metrics` periodically. Keep the API and agent running during local monitoring. A successful response is required for metrics to be persisted; the agent reports non-success HTTP statuses as errors.
 
-### 7. Start the Dashboard
+### 8. Start the Dashboard
 
 Open a third terminal:
 
@@ -472,58 +547,72 @@ cd ~/projects/server-monitor/dashboard
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173) in your browser. Use `localhost` rather than `127.0.0.1`, unless both origins are listed in `CORS_ORIGIN`.
+Open <http://localhost:5173> in your browser. Use `localhost` rather than `127.0.0.1` unless both origins are listed in `CORS_ORIGIN`.
+
+### 9. Configure and Test Notifications
+
+Add `NTFY_URL` to the root `.env`, subscribe to the same topic in the ntfy app, and restart the API so it loads the updated configuration. To send a test notification, use `POST /alerts/test` with the admin bearer token. Avoid placing a real token directly in shell history.
 
 ## Running the Project
 
 | Component | Command | Purpose |
 |---|---|---|
 | MySQL | `docker compose up -d` | Starts the database |
-| API | `cd api && npm run dev` | Starts the monitoring API |
+| API | `cd api && npm run dev` | Starts the monitoring API and alert scheduler |
 | Agent | `npx tsx agent/index.ts` | Collects and submits metrics |
 | Dashboard | `cd dashboard && npm run dev` | Starts the web dashboard |
-| Tests | `cd api && npm test` | Runs the API test suite |
+| Tests | `npx vitest run` | Runs the Vitest suite from the project root |
 
-Run the API, agent, and dashboard in separate terminals. Start MySQL before starting the API.
+Run the API, agent, and dashboard in separate terminals. Start MySQL before starting the API. The alert scheduler starts with the API and evaluates alert conditions immediately, then every 30 seconds.
 
 ## API Endpoints
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/health` | Checks API availability |
-| `POST` | `/metrics` | Validates a metric payload, links it to a server, and stores it |
-| `GET` | `/metrics` | Retrieves the latest stored metrics, optionally filtered by `serverId` |
-| `GET` | `/metrics/history` | Retrieves historical metrics with optional `limit`, `from`, `to`, and `serverId` filters |
-| `GET` | `/servers` | Lists registered servers |
-| `POST` | `/servers` | Validates and registers a new server |
+| Method | Endpoint | Description | Authentication |
+|---|---|---|---|
+| `GET` | `/health` | Checks API availability | None |
+| `POST` | `/metrics` | Validates and stores a metric payload | Agent API key |
+| `GET` | `/metrics` | Retrieves the latest metric payload, optionally filtered by `serverId` | None currently required |
+| `GET` | `/metrics/history` | Retrieves historical metrics with `limit`, `from`, `to`, and `serverId` filters | None currently required |
+| `GET` | `/servers` | Lists registered servers | None currently required |
+| `POST` | `/servers` | Registers a server | None currently required |
+| `GET` | `/servers/:id` | Retrieves a server | None currently required |
+| `POST` | `/servers/:id/api-key` | Issues or rotates a server API key | Admin token |
+| `GET` | `/alert-rules` | Lists alert rules | None currently required |
+| `POST` | `/alert-rules` | Creates an alert rule | Admin token |
+| `PATCH` | `/alert-rules/:id` | Updates an alert rule | Admin token |
+| `GET` | `/alerts` | Lists alert events; supports `status`, `serverId`, and `limit` | None currently required |
+| `POST` | `/alerts/test` | Sends a test notification to configured channels | Admin token |
 
 ## Database Verification
 
-You can inspect the database directly through the MySQL client inside the container:
+Open the MySQL client inside the container:
 
 ```bash
-docker exec -it sermoni-mysql mysql -u root -p
+docker exec -it sermoni-mysql mysql -u root -p sermoni
 ```
 
 Then run:
 
 ```sql
-USE sermoni;
 SHOW TABLES;
 SELECT id, server_id, metric_timestamp, created_at
 FROM metrics
 ORDER BY id DESC
 LIMIT 5;
-```
 
-To list registered servers and when they were last seen:
-
-```sql
 SELECT id, hostname, operating_system, last_seen
 FROM servers;
+
+SELECT id, server_id, metric, threshold, duration_seconds, enabled
+FROM alert_rules;
+
+SELECT id, server_id, rule_id, metric, status, value, threshold, started_at, resolved_at
+FROM alerts
+ORDER BY started_at DESC
+LIMIT 10;
 ```
 
-To count stored metric records per server:
+To count stored metric records by server:
 
 ```sql
 SELECT server_id, COUNT(*) AS total_metrics
@@ -531,61 +620,53 @@ FROM metrics
 GROUP BY server_id;
 ```
 
-## Validation
+## Validation and Testing
 
-The API uses Zod to validate the expected structure and data types of incoming metrics and server payloads, including:
+The API uses Zod to validate the structure and data types of incoming metrics, server payloads, alert rules, and query parameters. The TypeScript types are kept aligned with their schemas where applicable.
 
-- System and hardware information
-- CPU usage
-- Memory statistics
-- Disk information
-- Timestamp
-- Server registration data
-- Query parameters such as `limit`, `from`, `to`, and `serverId`
+Tests use Vitest and Fastify's `app.inject()` to exercise endpoints without starting a separate HTTP listener. The current suite contains **39 passing tests across four test files**, covering:
 
-The TypeScript `Metrics` type is inferred from the Zod schema, keeping runtime validation and static typing aligned. The `servers` module follows the same approach, with its schemas and types kept in their own folders.
+- CPU, memory, disk, stale readings, duration windows, and offline evaluation
+- Global and server-specific rule selection, including disabled rules
+- Alert creation, resolution, notification calls, and duplicate prevention using mocks
+- Health, metrics ingestion and retrieval, and metric-history query validation
 
-## Testing
-
-The API uses Vitest and Fastify's `app.inject()` to test HTTP endpoints without requiring a separate HTTP listener.
-
-Run the tests from the API directory:
+Run all tests from the project root:
 
 ```bash
-cd api
-npm test
+npx vitest run
 ```
 
-Tests that interact with MySQL require the database and schema to be available, unless the test suite mocks the database dependency. Database-dependent tests should use an isolated test database or a controlled test setup to avoid modifying development data.
-
-Because `POST /metrics` registers unknown hostnames automatically, tests that submit metrics against a real database also create server records, which is another reason to use an isolated test database.
+The current `server.test.ts` integration tests use the configured agent key and the active database connection. For routine development and CI, move database-dependent tests to an isolated test database or mock persistence so artificial test metrics do not mix with development monitoring data.
 
 ## Current Limitations
 
-Sermoni is a learning and portfolio project, and it is not yet intended for production deployment.
+Sermoni is a learning and portfolio project and is not yet intended for production deployment.
 
 - The dashboard is an initial version: it shows one server at a time and has no date-range selector.
-- No authentication between the agent and API is implemented.
-- No alerting or notification system is implemented.
-- Server management is still basic: there are no endpoints to edit or remove servers, and no server groups.
-- Online/offline status uses a one-minute window and the browser's clock.
-- Servers registered automatically have their `agent_version` set to `unknown`.
-- Metrics stored before servers were linked to them have no `server_id`.
-- Historical aggregation and advanced metric analytics are not implemented.
-- API access control and production security hardening remain future work.
+- The dashboard does not yet provide an interface for managing alert rules or browsing alert history; those capabilities are available through the API.
+- Alert schema creation is currently a manual setup step; a migration system should manage it in future versions.
+- Some read endpoints do not yet require authentication; production deployments need a consistent access-control policy.
+- Alert evaluation uses periodic polling rather than push-based metric processing.
+- The disk evaluator currently uses the largest reported disk entry in each metric payload rather than independent rules for each filesystem.
+- Online/offline dashboard status uses a one-minute window and the browser's clock.
+- Servers may be registered manually, and API key issuance requires an existing server record.
+- Historical aggregation, retention policies, and advanced metric analytics are not implemented.
+- Database-dependent tests should be isolated from development data before use in CI.
+- Production deployment, secrets management, access-control review, and operational monitoring still need hardening.
 
 ## Future Improvements
 
+- Database migrations for alert tables and future schema changes
+- Isolated test database and database-independent integration tests
+- Alert-rule management and alert-history views in the dashboard
+- Per-filesystem disk rules and additional resource metrics
 - Date-range selector and time-based charts in the dashboard
-- Historical metric aggregation and advanced filtering
+- Historical metric aggregation, retention, and advanced filtering
 - Advanced multi-server management, including editing, removing, and grouping servers
-- Agent authentication and API keys
-- Agent version reporting
-- Configurable resource usage thresholds
-- Alerting and notifications
-- Real-time updates with WebSockets or Server-Sent Events
-- Database migrations and retention policies
-- Expanded unit, integration, and database tests
+- Expanded authentication and authorization for read endpoints
+- Agent version reporting and server enrollment workflow
+- Real-time dashboard updates with WebSockets or Server-Sent Events
 - Docker-based deployment and production security hardening
 
 ## Learning Goals
@@ -593,20 +674,18 @@ Sermoni is a learning and portfolio project, and it is not yet intended for prod
 This project is being developed to practice:
 
 - TypeScript and Node.js
-- REST API development
-- HTTP communication between services
-- Runtime data validation
-- MySQL integration and SQL queries
-- Relational modeling with foreign keys
+- REST API development and HTTP communication between services
+- Runtime data validation and authentication
+- MySQL integration, SQL queries, and relational modeling with foreign keys
 - Docker and containerized development
-- Automated testing
+- Automated unit and integration testing
 - System and hardware monitoring
-- Modular backend architecture
-- Layered design (routes, services, repositories)
+- Alert evaluation, scheduling, and notification delivery
+- Modular backend architecture and layered design (routes, services, repositories)
 - Frontend development with React and TypeScript
 - Data visualization and dashboard design
-- Time zone handling and UTC consistency
-- Software design and maintainability
+- Time-zone handling and UTC consistency
+- Software design, maintainability, and testability
 
 ## License
 
@@ -617,9 +696,7 @@ This project is intended for educational and portfolio purposes. A formal open-s
 <div align="center">
 
 <a href="https://github.com/chasewright12">
-
   <img src="https://images.weserv.nl/?url=github.com/chasewright12.png&w=200&h=200&fit=cover&mask=circle" width="150" alt="GitHub profile">
-
 </a>
 
 ### Lucas Marques

@@ -37,17 +37,32 @@ export const pool = mysql.createPool({
 });
 
 
+async function columnExists(table: string, column: string): Promise<boolean> {
+    const [rows] = await pool.execute<RowDataPacket[]>(
+        `SELECT COLUMN_NAME
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = ?
+           AND TABLE_NAME = ?
+           AND COLUMN_NAME = ?`,
+        [database, table, column]
+    );
+
+    return rows.length > 0;
+}
+
+
 export async function initializeDatabase() {
-    // servers precisa existir antes de metrics, por causa da chave estrangeira
     await pool.execute(`
         CREATE TABLE IF NOT EXISTS servers (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
             hostname VARCHAR(255) NOT NULL,
             operating_system VARCHAR(100) NOT NULL,
             agent_version VARCHAR(50) NOT NULL,
+            api_key_hash CHAR(64) NULL,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             last_seen TIMESTAMP NULL DEFAULT NULL,
-            UNIQUE KEY uq_servers_hostname (hostname)
+            UNIQUE KEY uq_servers_hostname (hostname),
+            UNIQUE KEY uq_servers_api_key_hash (api_key_hash)
         )
     `);
 
@@ -66,17 +81,15 @@ export async function initializeDatabase() {
         )
     `);
 
-    // Bancos criados antes do server_id: adiciona a coluna se ainda não existir
-    const [serverIdColumn] = await pool.execute<RowDataPacket[]>(
-        `SELECT COLUMN_NAME
-         FROM information_schema.COLUMNS
-         WHERE TABLE_SCHEMA = ?
-           AND TABLE_NAME = 'metrics'
-           AND COLUMN_NAME = 'server_id'`,
-        [database]
-    );
+    if (!(await columnExists("servers", "api_key_hash"))) {
+        await pool.execute(`
+            ALTER TABLE servers
+                ADD COLUMN api_key_hash CHAR(64) NULL AFTER agent_version,
+                ADD UNIQUE KEY uq_servers_api_key_hash (api_key_hash)
+        `);
+    }
 
-    if (serverIdColumn.length === 0) {
+    if (!(await columnExists("metrics", "server_id"))) {
         await pool.execute(`
             ALTER TABLE metrics
                 ADD COLUMN server_id BIGINT UNSIGNED NULL AFTER id,

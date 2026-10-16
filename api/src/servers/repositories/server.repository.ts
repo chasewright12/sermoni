@@ -11,7 +11,6 @@ interface ServerRow extends RowDataPacket {
     last_seen: Date | null;
 }
 
-
 const serverColumns = `
     id,
     hostname,
@@ -60,15 +59,52 @@ export async function findServerById(
 }
 
 
+export async function findServerByHostname(
+    hostname: string
+): Promise<Server | null> {
+    const [rows] = await pool.execute<ServerRow[]>(
+        `SELECT ${serverColumns}
+        FROM servers
+        WHERE hostname = ?
+        LIMIT 1`,
+        [hostname]
+    );
+
+    return rows[0] ?? null;
+}
+
+
+export async function findServerByApiKeyHash(
+    apiKeyHash: string
+): Promise<Server | null> {
+    const [rows] = await pool.execute<ServerRow[]>(
+        `SELECT ${serverColumns}
+        FROM servers
+        WHERE api_key_hash = ?
+        LIMIT 1`,
+        [apiKeyHash]
+    );
+
+    return rows[0] ?? null;
+}
+
+
+export async function setApiKeyHash(
+    id: number,
+    apiKeyHash: string
+): Promise<void> {
+    await pool.execute(
+        `UPDATE servers
+        SET api_key_hash = ?
+        WHERE id = ?`,
+        [apiKeyHash, id]
+    );
+}
+
+
 export async function findAllServers(): Promise<Server[]> {
     const [rows] = await pool.execute<ServerRow[]>(
-        `SELECT
-            id,
-            hostname,
-            operating_system,
-            agent_version,
-            created_at,
-            last_seen
+        `SELECT ${serverColumns}
          FROM servers
          ORDER BY id DESC`
     );

@@ -2,6 +2,21 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { app } from "../src/server";
 
+function agentHeaders() {
+    const apiKey = process.env.SERMONI_API_KEY;
+
+    if (!apiKey) {
+        throw new Error(
+            "SERMONI_API_KEY must be configured for metrics integration tests"
+        );
+    }
+
+    return {
+        "content-type": "application/json",
+        authorization: `Bearer ${apiKey}`
+    };
+}
+
 function createMetrics(hostname = "test-server") {
     return {
         system: {
@@ -44,9 +59,7 @@ async function postMetrics(hostname = "test-server") {
     return app.inject({
         method: "POST",
         url: "/metrics",
-        headers: {
-            "content-type": "application/json"
-        },
+        headers: agentHeaders(),
         payload: JSON.stringify(createMetrics(hostname))
     });
 }
@@ -70,16 +83,22 @@ describe("POST /metrics", () => {
         const response = await postMetrics();
 
         expect(response.statusCode).toBe(201);
-        expect(response.json()).toEqual({
+
+        const body = response.json();
+
+        expect(body).toMatchObject({
             success: true,
             message: "Metrics stored successfully."
         });
+
+        expect(body.serverId).toBeTypeOf("number");
     });
 
     it("should reject invalid metrics", async () => {
         const response = await app.inject({
             method: "POST",
             url: "/metrics",
+            headers: agentHeaders(),
             payload: {
                 system: {
                     hostname: "test-server"
@@ -102,6 +121,7 @@ describe("GET /metrics", () => {
         const postResponse = await app.inject({
             method: "POST",
             url: "/metrics",
+            headers: agentHeaders(),
             payload: metrics
         });
 
@@ -208,6 +228,7 @@ describe("GET /metrics/history", () => {
         const postResponse = await app.inject({
             method: "POST",
             url: "/metrics",
+            headers: agentHeaders(),
             payload: metrics
         });
 

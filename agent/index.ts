@@ -4,6 +4,7 @@ import { getCpuInformation } from "./src/collectors/cpu";
 import { getMemoryInformation } from "./src/collectors/memory";
 import { getDiskInformation } from "./src/collectors/disk";
 import { sendMetrics } from "./api";
+import "dotenv/config";
 
 async function main() {
     try {
