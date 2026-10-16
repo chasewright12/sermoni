@@ -3,10 +3,17 @@ import Fastify from "fastify";
 import { healthRoutes } from "./routes/health";
 import { metricsRoutes } from "./routes/metrics";
 import { initializeDatabase, pool } from "./db";
+import cors from "@fastify/cors";
 
 const app = Fastify({
     logger: true
 });
+
+const corsOrigins = (process.env.CORS_ORIGIN ?? "http://localhost:5173")
+    .split(",")
+    .map((origin) => origin.trim());
+
+app.register(cors, { origin: corsOrigins });
 
 app.register(healthRoutes);
 app.register(metricsRoutes);

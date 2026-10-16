@@ -5,15 +5,24 @@ import {
     type Metrics
 } from "../schemas/metrics.schema";
 import { pool } from "../db";
+import { resolveServerFromMetrics } from "../servers/services/server.service";
+
+const ServerIdSchema = z.coerce.number().int().positive();
 
 const HistoryQuerySchema = z.object({
     limit: z.coerce.number().int().min(1).max(200).default(50),
     from: z.string().datetime({ offset: true }).optional(),
-    to: z.string().datetime({ offset: true }).optional()
+    to: z.string().datetime({ offset: true }).optional(),
+    serverId: ServerIdSchema.optional()
+});
+
+const LatestQuerySchema = z.object({
+    serverId: ServerIdSchema.optional()
 });
 
 type HistoryRow = {
     id: number;
+    server_id: number | null;
     metric_timestamp: Date | string;
     created_at: Date | string;
     payload: Metrics | string;
@@ -40,14 +49,18 @@ export async function metricsRoutes(app: FastifyInstance) {
         }
 
         try {
+            const server = await resolveServerFromMetrics(metrics);
+
             await pool.execute(
-                `INSERT INTO metrics (metric_timestamp, payload) VALUES (?, ?)`,
-                [timestamp, JSON.stringify(metrics)]
+                `INSERT INTO metrics (server_id, metric_timestamp, payload)
+                 VALUES (?, ?, ?)`,
+                [server.id, timestamp, JSON.stringify(metrics)]
             );
 
             return reply.status(201).send({
                 success: true,
-                message: "Metrics stored successfully."
+                message: "Metrics stored successfully.",
+                serverId: server.id
             });
         } catch (error) {
             request.log.error(error, "Failed to store metrics");
@@ -68,7 +81,7 @@ export async function metricsRoutes(app: FastifyInstance) {
             });
         }
 
-        const { limit, from, to } = result.data;
+        const { limit, from, to, serverId } = result.data;
 
         if (from && to && new Date(from) > new Date(to)) {
             return reply.status(400).send({
@@ -78,6 +91,11 @@ export async function metricsRoutes(app: FastifyInstance) {
 
         const conditions: string[] = [];
         const parameters: (Date | number)[] = [];
+
+        if (serverId !== undefined) {
+            conditions.push("server_id = ?");
+            parameters.push(serverId);
+        }
 
         if (from) {
             conditions.push("metric_timestamp >= ?");
@@ -90,7 +108,7 @@ export async function metricsRoutes(app: FastifyInstance) {
         }
 
         let sql = `
-            SELECT id, metric_timestamp, created_at, payload
+            SELECT id, server_id, metric_timestamp, created_at, payload
             FROM metrics
             `;
 
@@ -126,12 +144,33 @@ export async function metricsRoutes(app: FastifyInstance) {
     });
 
     app.get("/metrics", async (request, reply) => {
+        const result = LatestQuerySchema.safeParse(request.query);
+
+        if (!result.success) {
+            return reply.status(400).send({
+                error: "Invalid query params",
+                details: result.error.issues
+            });
+        }
+
+        const { serverId } = result.data;
+
+        const sql =
+            serverId === undefined
+                ? `SELECT payload
+                   FROM metrics
+                   ORDER BY id DESC
+                   LIMIT 1`
+                : `SELECT payload
+                   FROM metrics
+                   WHERE server_id = ?
+                   ORDER BY id DESC
+                   LIMIT 1`;
+
         try {
             const [rows] = await pool.execute(
-                `SELECT payload
-                 FROM metrics
-                 ORDER BY id DESC
-                 LIMIT 1`
+                sql,
+                serverId === undefined ? [] : [serverId]
             );
 
             const latest = (rows as { payload: Metrics | string }[])[0];
